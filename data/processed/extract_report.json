@@ -1,0 +1,10 @@
+{
+  "input_artifacts": 28880,
+  "event_artifacts": 20247,
+  "claims_written": 4036,
+  "evidence_written": 4036,
+  "outputs": {
+    "claims": "data/processed/claims.jsonl",
+    "evidence": "data/processed/evidence.jsonl"
+  }
+}

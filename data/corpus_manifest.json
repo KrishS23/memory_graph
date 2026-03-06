@@ -1,0 +1,16 @@
+{
+  "source": "github",
+  "owner": "rust-lang",
+  "repo": "rust",
+  "collected_at_utc": "2026-03-01T00:00:00Z",
+  "strategy": {
+    "target_issues": 400,
+    "min_comments": 5,
+    "include": ["issues", "comments", "events"],
+    "exclude_pull_requests": true
+  },
+  "github_api": {
+    "api_version_header": "2022-11-28",
+    "accept": "application/vnd.github+json"
+  }
+}

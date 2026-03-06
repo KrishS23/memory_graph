@@ -1,0 +1,46 @@
+{
+  "input_total": 28880,
+  "canonical_count": 8618,
+  "duplicate_count": 15,
+  "duplicate_rate": 0.0005193905817174516,
+  "notes": [
+    "Dedup is per issue thread (issue_number).",
+    "This is reversible: duplicates are kept but marked + logged as DuplicateOf edges."
+  ],
+  "examples": [
+    {
+      "issue_number": 152763,
+      "duplicate_artifact_id": "5a92cd4a9a6982db5a3e718e476e16e33bc0067358f2190ae65125b4d8a332d7",
+      "canonical_artifact_id": "0c7fd5c50bae1f1709334925aea44555df41c6bdf6b26c6e41a38c0faf522f6c",
+      "text_preview": ":bell: **This is now entering its final comment period**, as per the [review above](https://github.com/rust-lang/rust/issues/152763#issuecomment-3916188355). :b"
+    },
+    {
+      "issue_number": 152761,
+      "duplicate_artifact_id": "41984aae6ae8cfeeba2d035a23d78547408f06d1127be4ef417a62dc9d8ca84a",
+      "canonical_artifact_id": "965119524a2db2a5673b0c78abdc279ff7c41143fca49577333870066109cc56",
+      "text_preview": ":bell: **This is now entering its final comment period**, as per the [review above](https://github.com/rust-lang/rust/issues/152761#issuecomment-3916169397). :b"
+    },
+    {
+      "issue_number": 141726,
+      "duplicate_artifact_id": "20e5c3ea86508a5e4b37734a313c44ba741e5ba878672479360a93265013fe19",
+      "canonical_artifact_id": "d38f8cd219d2a13fde73e5106f41ce838a87eb14780bf8222b9f3913b1404dc9",
+      "text_preview": "@rustbot claim"
+    },
+    {
+      "issue_number": 150689,
+      "duplicate_artifact_id": "837e7502f83d39ee3cdebb883f5dac6625c0842187e73c45eb7a48cd3d2c9b03",
+      "canonical_artifact_id": "152afaa5ee7f1f8827af0cd2377a8ff733cee8513f80177534a3b23ff62fff57",
+      "text_preview": "@rustbot claim"
+    },
+    {
+      "issue_number": 133469,
+      "duplicate_artifact_id": "90154ed6afdce93235f31f44881d87b2fd76e69cb51a72c4662c7f12a8eaa7a6",
+      "canonical_artifact_id": "8cda453ad2584fa14bb65ec6974b49ed9dfc85143c049010f6e5679f8f4cc5cc",
+      "text_preview": "@rustbot note This is a test."
+    }
+  ],
+  "outputs": {
+    "artifacts": "data/processed/artifacts_deduped.jsonl",
+    "edges": "data/processed/duplicate_edges.jsonl"
+  }
+}

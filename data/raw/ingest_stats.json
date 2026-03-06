@@ -1,0 +1,7 @@
+{
+  "repo": "rust-lang/rust",
+  "issues": 400,
+  "comments": 8233,
+  "events": 20247,
+  "output": "data/raw/artifacts.jsonl"
+}

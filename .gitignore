@@ -1,0 +1,9 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+.DS_Store
+lib/
+data/processed/graphs/
+memory_graph.html
+memory_graph_all.html
