@@ -2,61 +2,59 @@
 
 This project builds a structured memory graph from GitHub issue activity and provides an interactive interface to explore it.
 
-The system ingests GitHub issues, extracts structured claims about issue state and activity, stores supporting evidence, and exposes the resulting memory through an interactive graph explorer UI.
+The system ingests GitHub issues, extracts structured claims about issue activity, stores supporting evidence, and exposes the resulting memory through an interactive graph explorer.
 
-The goal is to make repository activity machine-readable, explainable, and navigable. All claims in the memory graph are grounded in evidence from the original GitHub artifacts, ensuring that every stored fact can be traced back to its source.
+Every claim in the memory graph is grounded in evidence from the original GitHub artifacts, making the system explainable and traceable.
 
 ---
 
 # System Overview
 
-The system transforms GitHub issue activity into a structured memory graph through the following pipeline:
+The pipeline converts GitHub issue activity into a structured memory graph.
 
 ```
 GitHub Issues
       ↓
 Ingestion
       ↓
-Normalization + Deduplication
+Deduplication
       ↓
 Claim Extraction
       ↓
 Current State Builder
       ↓
-Visualization (Memory Graph Explorer)
+Visualization
 ```
 
-The final output is an interactive graph of entities and claims with traceable evidence.
+The result is a graph of entities and relationships with traceable evidence.
 
 ---
 
 # Corpus
 
-This project uses GitHub Issues from the `rust-lang/rust` repository.
+The system uses GitHub Issues from the `rust-lang/rust` repository.
 
-Data is collected using the GitHub API through the ingestion script:
+Data is collected using the GitHub API:
 
 ```
 python src/ingest/select_issues.py
 ```
 
-The script downloads issue metadata, labels, assignments, and issue events and stores them in:
+Artifacts are stored in:
 
 ```
 data/raw/artifacts.jsonl
 ```
 
-Artifacts collected include:
+Collected artifacts include:
 
-- Issues  
-- Issue events  
-- Labels  
-- Assignees  
-- Status transitions  
+- issues
+- issue events
+- labels
+- assignees
+- status changes
 
-These artifacts are converted into structured claims.
-
-Example:
+Example relationships extracted from artifacts:
 
 ```
 Issue#153101 --has_label--> E-help-wanted
@@ -64,7 +62,7 @@ Issue#153101 --assigned_to--> JayanAXHF
 Issue#153101 --status--> closed
 ```
 
-Each claim links to evidence pointing to the original artifact.
+Each claim links to the artifact that generated it.
 
 ---
 
@@ -83,21 +81,22 @@ Layer10.AI
 │       ├── evidence.jsonl
 │       ├── current_state.jsonl
 │       ├── duplicate_edges.jsonl
-│       └── dedup_report.json
+│       ├── dedup_report.json
+│       └── extract_report.json
+│
+├── images
+│   ├── graph_view.jpeg
+│   └── evidence_panel.jpeg
 │
 ├── src
 │   ├── ingest
-│   │   └── select_issues.py
-│   │
-│   ├── processing
-│   │   ├── deduplicate.py
-│   │   ├── extract_claims.py
-│   │   └── build_current_state.py
-│   │
+│   ├── dedup
+│   ├── extract
+│   ├── resolve
+│   ├── retrieval
 │   └── visualisation
-│       ├── graph_view.py
-│       └── app.py
 │
+├── requirements.txt
 └── README.md
 ```
 
@@ -105,25 +104,25 @@ Layer10.AI
 
 # Ontology
 
-The memory graph uses an ontology designed around issue-tracking workflows.
+The memory graph models issue-tracking activity.
 
-## Entity Types
+### Entity Types
 
-- Issue  
-- Label  
-- User  
-- Status  
+- Issue
+- Label
+- User
+- Status
 
-## Relationship Types
+### Relationship Types
 
 | Predicate | Meaning |
 |-----------|--------|
-| has_label | Issue has a label |
-| removed_label | Label removed from issue |
-| assigned_to | Issue assigned to a user |
-| status | Issue open or closed |
+| has_label | issue has label |
+| removed_label | label removed |
+| assigned_to | issue assigned to user |
+| status | issue open or closed |
 
-Example graph fragment:
+Example:
 
 ```
 Issue#153101
@@ -133,7 +132,7 @@ Issue#153101
    └── status → open
 ```
 
-This ontology is intentionally simple but extensible. Additional entities such as comments, pull requests, components, or teams could easily be incorporated.
+The ontology is intentionally simple and can be extended with entities such as comments, components, or pull requests.
 
 ---
 
@@ -145,7 +144,6 @@ A claim represents a structured fact extracted from an artifact.
 
 ```json
 {
-  "claim_id": "...",
   "claim_type": "LABEL",
   "subject": {"type": "Issue", "id": "github:rust-lang/rust:issue#153101"},
   "predicate": "has_label",
@@ -156,20 +154,20 @@ A claim represents a structured fact extracted from an artifact.
 }
 ```
 
-Each claim contains:
+A claim contains:
 
-- subject entity  
-- predicate relationship  
-- object value/entity  
-- timestamp  
-- extraction confidence  
-- pointers to supporting evidence  
+- subject
+- predicate
+- object
+- event timestamp
+- extraction confidence
+- evidence references
 
 ---
 
 ## Evidence
 
-Evidence links a claim to the original artifact.
+Evidence links a claim to the artifact that produced it.
 
 ```json
 {
@@ -181,63 +179,34 @@ Evidence links a claim to the original artifact.
 }
 ```
 
-Evidence ensures that every claim can be traced back to the original source artifact.
+This ensures every claim is traceable to its source.
 
 ---
 
 ## Current State
 
-The latest known state of an issue computed from claims.
+The latest state of an issue derived from claims.
 
 ```json
 {
   "entity_id": "github:rust-lang/rust:issue#153101",
   "current_status": "open",
-  "assigned_to": "JayanAXHF",
-  "labels": ["A-AST", "E-help-wanted"]
+  "assigned_to": "user",
+  "labels": ["A-AST","E-help-wanted"]
 }
 ```
 
-The current state is reconstructed by replaying claims in chronological order.
+State is computed by replaying claims chronologically.
 
 ---
 
-# Extraction Contract
+# Deduplication
 
-The extraction layer converts GitHub artifacts into structured claims.
-
-Each extracted claim must include:
-
-- subject  
-- predicate  
-- object  
-- event_time  
-- evidence_ids  
-- confidence  
-
-The extraction pipeline enforces grounding by ensuring that every claim references evidence.
-
-Extraction outputs are validated to ensure schema correctness. Invalid outputs are either normalized or discarded. Deterministic normalization ensures that equivalent entities and values are represented consistently across artifacts.
-
-Extraction outputs also include version identifiers so that the dataset can be reprocessed when the ontology or extraction logic evolves.
-
-Claims are only persisted if they pass confidence thresholds and have valid evidence references.
-
----
-
-# Deduplication and Canonicalization
-
-Duplicate information frequently appears across issue trackers. The system performs deduplication at multiple levels.
-
-## Artifact Deduplication
-
-Artifacts are normalized and hashed:
+Duplicate artifacts are normalized and hashed:
 
 ```
 sha256(normalized_artifact)
 ```
-
-Identical artifacts are merged.
 
 Outputs:
 
@@ -247,219 +216,39 @@ duplicate_edges.jsonl
 dedup_report.json
 ```
 
-## Entity Canonicalization
-
-Entity identifiers follow canonical forms such as:
+Entity identifiers are canonicalized:
 
 ```
 github:rust-lang/rust:issue#153101
 ```
 
-This prevents duplication across ingestion passes.
-
-## Claim Deduplication
-
-Repeated claims are merged while preserving multiple supporting evidence items.
-
-## Conflict and Revision Handling
-
-Claims represent events in time. Later claims override earlier ones when computing the current state.
-
-Example:
-
-```
-t1: Issue#153101 has_label needs-triage
-t2: Issue#153101 removed_label needs-triage
-t3: Issue#153101 has_label A-AST
-```
-
-All deduplication operations are recorded in `duplicate_edges.jsonl` so merges remain auditable.
+Repeated claims are merged while preserving evidence references.
 
 ---
 
 # Memory Graph Design
 
-The memory graph consists of the following core components:
+The memory graph contains:
 
-- entities  
-- artifacts  
-- claims  
-- evidence pointers  
-
-The graph is implemented as structured JSONL datasets.
+- entities
+- artifacts
+- claims
+- evidence
 
 Two time concepts are used:
 
-- event time — when the event occurred  
-- derived state time — when the system computes the latest state  
+- **event time** – when the event occurred
+- **derived state time** – when current state is computed
 
-The pipeline supports incremental ingestion and idempotent processing. Reprocessing artifacts regenerates claims deterministically.
-
-In production environments, retrieval would enforce source permissions so users only access claims grounded in artifacts they are authorized to view.
+The pipeline is deterministic and can be rerun to regenerate the graph.
 
 ---
 
-# Visualization Layer
+# Visualization
 
-An interactive interface allows exploration of the memory graph.
+The memory graph can be explored through an interactive UI.
 
 Run:
-
-```
-streamlit run src/visualisation/app.py
-```
-
-Open in a browser:
-
-```
-http://localhost:8501
-```
-
-The interface provides:
-
-## Graph View
-
-Displays entities and relationships extracted from claims.
-
-Examples:
-
-```
-Issue → Label
-Issue → Assignee
-Issue → Status
-```
-
-## Filtering
-
-The sidebar allows filtering by:
-
-- claim type  
-- confidence  
-- time range  
-
-It also lists issues active within the selected filters.
-
-## Evidence Panel
-
-Selecting a claim displays the supporting evidence, including:
-
-- artifact identifier  
-- timestamp  
-- source URL  
-- supporting excerpt  
-
-## Duplicate Inspection
-
-Deduplication outputs can be inspected through:
-
-```
-duplicate_edges.jsonl
-dedup_report.json
-```
-
----
-
-# Visualization Examples
-
-## Graph View
-
-![Graph View](images/graph_view.png)
-
-The graph shows relationships between issues, labels, assignees, and status claims.
-
----
-
-## Evidence Panel
-
-![Evidence Panel](images/evidence_panel.png)
-
-Selecting a claim displays the artifact and excerpt supporting the claim.
-
----
-
-## Filters and Issue Navigation
-
-![Filters](images/filters.png)
-
-The sidebar allows filtering by claim type, confidence, and time range, and lists issues active within the selected filters.
-
----
-
-# Reproducibility
-
-Tested with:
-
-```
-Python 3.10+
-```
-
-The full pipeline can be run end-to-end.
-
-## 1. Create environment
-
-```
-python -m venv .venv
-source .venv/bin/activate
-```
-
-## 2. Install dependencies
-
-```
-pip install streamlit pyvis networkx requests python-dotenv
-```
-
-## 3. Ingest GitHub issues
-
-```
-python src/ingest/select_issues.py
-```
-
-Output:
-
-```
-data/raw/artifacts.jsonl
-```
-
-## 4. Deduplicate artifacts
-
-```
-python src/processing/deduplicate.py
-```
-
-Outputs:
-
-```
-data/processed/artifacts_deduped.jsonl
-data/processed/duplicate_edges.jsonl
-data/processed/dedup_report.json
-```
-
-## 5. Extract claims
-
-```
-python src/processing/extract_claims.py
-```
-
-Outputs:
-
-```
-data/processed/claims.jsonl
-data/processed/evidence.jsonl
-```
-
-## 6. Build current state
-
-```
-python src/processing/build_current_state.py
-```
-
-Output:
-
-```
-data/processed/current_state.jsonl
-```
-
-## 7. Launch visualization
 
 ```
 streamlit run src/visualisation/app.py
@@ -471,11 +260,96 @@ Open:
 http://localhost:8501
 ```
 
+### Graph View
+
+Shows relationships between issues, labels, assignees, and status.
+
+### Filters
+
+The sidebar supports filtering by:
+
+- claim type
+- confidence
+- time range
+
+### Evidence Panel
+
+Selecting a claim displays:
+
+- artifact ID
+- timestamp
+- source URL
+- supporting excerpt
+
+### Deduplication
+
+Duplicate merges can be inspected through:
+
+```
+duplicate_edges.jsonl
+dedup_report.json
+```
+
+---
+
+# Reproducibility
+
+Tested with:
+
+```
+Python 3.10+
+```
+
+Run the full pipeline.
+
+### 1. Create environment
+
+```
+python -m venv .venv
+source .venv/bin/activate
+```
+
+### 2. Install dependencies
+
+```
+pip install -r requirements.txt
+```
+
+### 3. Ingest issues
+
+```
+python src/ingest/select_issues.py
+```
+
+### 4. Deduplicate artifacts
+
+```
+python src/dedup/dedup_artifacts.py
+```
+
+### 5. Extract claims
+
+```
+python src/extract/extract_events.py
+```
+
+### 6. Build current state
+
+```
+python src/resolve/build_current_state.py
+```
+
+### 7. Launch visualization
+
+```
+streamlit run src/visualisation/app.py
+```
+
 ---
 
 # Expected Outputs
 
-After running the pipeline, the following files should exist:
+After running the pipeline:
 
 ```
 data/processed/
@@ -486,9 +360,12 @@ evidence.jsonl
 current_state.jsonl
 duplicate_edges.jsonl
 dedup_report.json
+extract_report.json
 ```
 
 These files represent the serialized memory graph used by the visualization layer.
+
+---
 
 # Visualization Examples
 
@@ -496,11 +373,6 @@ These files represent the serialized memory graph used by the visualization laye
 
 ![Graph View](images/graph_view.jpeg)
 
-The graph visualization shows relationships between issues, labels, assignees, and status claims. The sidebar allows filtering by claim type, confidence, and time range.
-
 ## Evidence Panel
 
 ![Evidence Panel](images/evidence_panel.jpeg)
-
-Selecting a claim displays the supporting artifact, timestamp, source URL, and excerpt used to generate the claim.
----
