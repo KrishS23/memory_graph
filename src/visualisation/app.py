@@ -6,20 +6,17 @@ from typing import Any, Dict, List, Optional, Tuple
 import streamlit as st
 from pyvis.network import Network
 
+from src.retrieval.query import retrieve
+from src.retrieval.generate import generate_answer
 
-# -----------------------------
-# Paths (match your repo layout)
-# -----------------------------
 CLAIMS_PATH = "data/processed/claims.jsonl"
 EVIDENCE_PATH = "data/processed/evidence.jsonl"
 CURRENT_STATE_PATH = "data/processed/current_state.jsonl"
 DUP_REPORT_PATH = "data/processed/dedup_report.json"
 DUP_EDGES_PATH = "data/processed/duplicate_edges.jsonl"
+FAISS_INDEX_PATH = "data/processed/faiss.index"
 
 
-# -----------------------------
-# Helpers
-# -----------------------------
 def load_jsonl(path: str) -> List[Dict[str, Any]]:
     rows: List[Dict[str, Any]] = []
     if not os.path.exists(path):
@@ -34,11 +31,9 @@ def load_jsonl(path: str) -> List[Dict[str, Any]]:
 
 
 def parse_ts(ts: str) -> Optional[datetime]:
-    """Parse ISO time like '2026-02-27T16:05:20Z' -> datetime(UTC)."""
     if not ts:
         return None
     try:
-        # 'Z' => UTC
         dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
         if dt.tzinfo is None:
             dt = dt.replace(tzinfo=timezone.utc)
@@ -48,7 +43,6 @@ def parse_ts(ts: str) -> Optional[datetime]:
 
 
 def issue_number_from_entity(entity_id: str) -> str:
-    # "github:rust-lang/rust:issue#153101" -> "153101"
     if "#" in entity_id:
         return entity_id.split("#")[-1]
     return entity_id
@@ -86,16 +80,8 @@ def claim_matches_filters(
 
 
 def build_pyvis_graph(issue_claims: List[Dict[str, Any]]) -> Network:
-    """
-    Create a spacious PyVis graph:
-      Issue node -> Object nodes (label/person/status etc)
-      Edge hover shows predicate + time + confidence
-    """
     net = Network(height="740px", width="100%", directed=True, notebook=False)
-
-    # Make it more spacious
     net.toggle_physics(True)
-    # Barnes-Hut works well for medium graphs
     net.barnes_hut(
         gravity=-26000,
         central_gravity=0.1,
@@ -110,37 +96,37 @@ def build_pyvis_graph(issue_claims: List[Dict[str, Any]]) -> Network:
     def add_node(node_id: str):
         if node_id in nodes:
             return
-
-        # Color/label logic
         if is_issue_entity_id(node_id):
-            color = "#9ecae1"  # light blue
-            label = node_id.split(":")[-1]  # issue#153101
+            color = "#9ecae1"
+            label = node_id.split(":")[-1]
             title = node_id
             size = 26
         elif node_id.startswith(("A-", "E-", "T-", "C-")):
-            color = "#fdae6b"  # orange-ish
+            color = "#fdae6b"
             label = node_id
             title = node_id
             size = 18
         elif node_id in ("open", "closed"):
-            color = "#a1d99b"  # green-ish
+            color = "#a1d99b"
             label = node_id
             title = node_id
             size = 18
         else:
-            # assignee or other entity
             color = "#a1d99b"
             label = node_id
             title = node_id
             size = 18
 
-        nodes[node_id] = dict(label=label, title=title, color=color, size=size)
+        nodes[node_id] = {
+            "label": label,
+            "title": title,
+            "color": color,
+            "size": size,
+        }
 
-    # Add nodes + edges
     for c in issue_claims:
         s = c["subject"]["id"]
         o = c["object"]["value"]
-
         add_node(s)
         add_node(o)
 
@@ -153,23 +139,13 @@ def build_pyvis_graph(issue_claims: List[Dict[str, Any]]) -> Network:
         pred = c.get("predicate", "")
         t = c.get("event_time", "")
         conf = c.get("confidence", 0.0)
-
-        # show predicate on hover + extra metadata
         hover = f"{pred}<br>{t}<br>conf={conf}"
-        net.add_edge(s, o, title=hover, label="")  # keep edge label empty => cleaner
+        net.add_edge(s, o, title=hover, label="")
 
     return net
 
 
-def safe_time_slider(
-    label: str,
-    times: List[datetime],
-    default_full_range: bool = True,
-):
-    """
-    Returns None if no usable range, else (start,end).
-    Fixes the "min must be less than max" Streamlit crash.
-    """
+def safe_time_slider(label: str, times: List[datetime]) -> Optional[Tuple[datetime, datetime]]:
     if len(times) < 2:
         st.sidebar.info("Not enough distinct timestamps for time-range slider.")
         return None
@@ -179,23 +155,17 @@ def safe_time_slider(
         st.sidebar.info("All events share the same timestamp; time slider disabled.")
         return None
 
-    if default_full_range:
-        return st.sidebar.slider(label, min_value=tmin, max_value=tmax, value=(tmin, tmax))
-    else:
-        return st.sidebar.slider(label, min_value=tmin, max_value=tmax, value=(tmin, tmax))
+    return st.sidebar.slider(
+        label,
+        min_value=tmin,
+        max_value=tmax,
+        value=(tmin, tmax),
+    )
 
 
-# -----------------------------
-# App
-# -----------------------------
-def main():
-    st.set_page_config(page_title="Memory Graph Explorer", layout="wide")
-    st.title("Memory Graph Explorer")
-    st.caption("Navigate issues → see claims graph → click a claim → view supporting evidence + duplicates/merges.")
-
+def render_graph_explorer():
     claims, evidence_by_id, current_state = load_all_data()
 
-    # Basic checks
     if not os.path.exists(CLAIMS_PATH):
         st.error(f"Missing {CLAIMS_PATH}. Run extraction first.")
         return
@@ -203,14 +173,12 @@ def main():
         st.error(f"Missing {CURRENT_STATE_PATH}. Run build_current_state.py first.")
         return
 
-    # Build all issues list from current_state
     issue_ids = [row.get("entity_id") for row in current_state if row.get("entity_id")]
     issue_ids = [i for i in issue_ids if is_issue_entity_id(i)]
     if not issue_ids:
         st.error("No issues found in current_state.jsonl")
         return
 
-    # Sidebar filters
     st.sidebar.header("Navigation + Filters")
 
     all_claim_types = sorted({c.get("claim_type") for c in claims if c.get("claim_type")})
@@ -218,7 +186,6 @@ def main():
 
     min_conf = st.sidebar.slider("Min confidence", 0.0, 1.0, 0.0, 0.01)
 
-    # Global time filter (affects which issues are "active" and shown in dropdown)
     st.sidebar.subheader("Time filter")
     enable_time = st.sidebar.checkbox("Enable time range filter", value=False)
 
@@ -228,16 +195,22 @@ def main():
         all_times = [t for t in all_times if t is not None]
         chosen_global_range = safe_time_slider("Event time range (UTC)", all_times)
 
-    # Compute "active issues" in time range/type/conf
     if chosen_global_range is None:
-        active_issue_ids = issue_ids[:]  # show all
+        active_set = set()
+        for c in claims:
+            sid = c.get("subject", {}).get("id")
+            if not sid or sid not in issue_ids:
+                continue
+            if claim_matches_filters(c, min_conf, selected_types, None):
+                active_set.add(sid)
+        active_issue_ids = sorted(active_set, key=lambda x: int(issue_number_from_entity(x)))
+        if not active_issue_ids:
+            active_issue_ids = issue_ids[:]
     else:
         active_set = set()
         for c in claims:
             sid = c.get("subject", {}).get("id")
-            if not sid:
-                continue
-            if sid not in issue_ids:
+            if not sid or sid not in issue_ids:
                 continue
             if claim_matches_filters(c, min_conf, selected_types, chosen_global_range):
                 active_set.add(sid)
@@ -250,20 +223,41 @@ def main():
 
     active_issue_nums = [issue_number_from_entity(eid) for eid in active_issue_ids]
 
+    st.sidebar.markdown("### Active issues in current filters")
+    st.sidebar.write(f"**Count:** {len(active_issue_nums)}")
+
+    SHOW_N = 50
+    preview = active_issue_nums[:SHOW_N]
+
+    st.sidebar.caption(
+        f"Showing first {min(SHOW_N, len(active_issue_nums))} issues. Use the dropdown below to inspect one."
+    )
+
+    search_q = st.sidebar.text_input("Search active issue number", value="").strip()
+    if search_q:
+        preview = [x for x in active_issue_nums if search_q in x][:SHOW_N]
+
+    st.sidebar.code(", ".join(preview) if preview else "(no matches)", language="text")
+
+    st.sidebar.download_button(
+        "Download active issues list",
+        data="\n".join(active_issue_nums),
+        file_name="active_issues.txt",
+        mime="text/plain",
+    )
+
     selected_issue_num = st.sidebar.selectbox(
         "Select issue number",
         active_issue_nums,
-        index=0,
+        index=0 if active_issue_nums else None,
     )
 
-    # Resolve entity_id from issue number
     selected_issue_id = None
     for eid in active_issue_ids:
         if eid.endswith(f"#{selected_issue_num}"):
             selected_issue_id = eid
             break
     if selected_issue_id is None:
-        # fallback: search all known issues
         for eid in issue_ids:
             if eid.endswith(f"#{selected_issue_num}"):
                 selected_issue_id = eid
@@ -273,14 +267,12 @@ def main():
         st.error("Could not resolve selected issue entity_id.")
         return
 
-    # Filter claims for this issue
     issue_claims_all = [c for c in claims if c.get("subject", {}).get("id") == selected_issue_id]
     issue_claims = [
         c for c in issue_claims_all
         if claim_matches_filters(c, min_conf, selected_types, chosen_global_range)
     ]
 
-    # Layout: Graph + Right panel
     col1, col2 = st.columns([2.3, 1], gap="large")
 
     with col1:
@@ -292,7 +284,6 @@ def main():
             html = net.generate_html(notebook=False)
             st.components.v1.html(html, height=760, scrolling=True)
 
-        # Optional: show current state summary right under the graph
         cs = next((x for x in current_state if x.get("entity_id") == selected_issue_id), None)
         if cs:
             st.markdown("### Current state (computed)")
@@ -305,7 +296,6 @@ def main():
             st.info("Nothing to show.")
             st.stop()
 
-        # Sort newest first
         sorted_claims = sorted(issue_claims, key=lambda x: x.get("event_time", ""), reverse=True)
 
         claim_labels = []
@@ -347,7 +337,6 @@ def main():
                 st.divider()
 
         st.markdown("### Duplicates / merges")
-        # Show dedup report summary if present
         if os.path.exists(DUP_REPORT_PATH):
             with open(DUP_REPORT_PATH, "r", encoding="utf-8") as f:
                 rep = json.load(f)
@@ -356,10 +345,8 @@ def main():
         else:
             st.caption("No dedup_report.json found (optional).")
 
-        # Show relevant duplicate edges
         if os.path.exists(DUP_EDGES_PATH):
             dup_edges = load_jsonl(DUP_EDGES_PATH)
-            # naive filter: anything that mentions this issue id string
             needle = f"#{selected_issue_num}"
             related = [d for d in dup_edges if needle in json.dumps(d)]
             st.write(f"duplicate_edges related to issue #{selected_issue_num}: **{len(related)}**")
@@ -367,6 +354,64 @@ def main():
                 st.json(related[:30])
         else:
             st.caption("No duplicate_edges.jsonl found (optional).")
+
+
+def render_search_tab():
+    st.subheader("🔍 Ask the Memory Graph")
+    st.caption("Retrieval runs over embedded claims. Generation grounds answers strictly in retrieved evidence.")
+
+    if not os.path.exists(FAISS_INDEX_PATH):
+        st.warning(
+            "No FAISS index found. Run `embed_claims.py` and `build_index.py` first "
+            "before using search here."
+        )
+        return
+
+    query = st.text_input("Enter a question about issue history:")
+    k = st.slider("Number of results (k)", min_value=1, max_value=20, value=5)
+
+    if not query:
+        return
+
+    with st.spinner("Retrieving relevant claims..."):
+        results = retrieve(query, k=k)
+
+    if not results:
+        st.info("No relevant claims found.")
+        return
+
+    st.markdown(f"### Top {len(results)} retrieved claims")
+    for r in results:
+        claim = r["claim"]
+        ev = r["evidence"]
+        st.markdown(
+            f"**{claim['subject']['id']} {claim['predicate']} {claim['object']['value']}**  "
+            f"— score: `{r['score']:.3f}`"
+        )
+        if ev:
+            st.caption(f"\"{ev['quote']}\"")
+            st.caption(f"source: {ev['url']}")
+        st.divider()
+
+    if st.button("Generate grounded answer"):
+        with st.spinner("Asking Gemini..."):
+            answer = generate_answer(query, k=k)
+        st.markdown("### Answer")
+        st.write(answer)
+
+
+def main():
+    st.set_page_config(page_title="Memory Graph Explorer", layout="wide")
+    st.title("Memory Graph Explorer")
+    st.caption("Navigate issues → see claims graph → click a claim → view supporting evidence + duplicates/merges.")
+
+    tab1, tab2 = st.tabs(["📊 Graph Explorer", "🔍 Ask the Memory Graph"])
+
+    with tab1:
+        render_graph_explorer()
+
+    with tab2:
+        render_search_tab()
 
 
 if __name__ == "__main__":

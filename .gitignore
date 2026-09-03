@@ -5,5 +5,4 @@ __pycache__/
 .DS_Store
 lib/
 data/processed/graphs/
-memory_graph.html
-memory_graph_all.html
+data/raw/artifacts.jsonl
